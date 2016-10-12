@@ -1,0 +1,179 @@
+#include<avr/io.h>
+#include<util/delay.h>
+#define F_CPU 16000000UL
+#define lcd PORTD
+#define RS 0
+#define RW 1
+#define EN 2
+
+void lcd_command(unsigned char cmd)
+{
+lcd=cmd & 0xf0;
+lcd&=~(1<<RS);
+lcd&=~(1<<RW);
+lcd|=(1<<EN);
+_delay_ms(1);
+lcd&=~(1<<EN);
+_delay_ms(1);
+lcd=(cmd<<4) & 0xf0;
+lcd&=~(1<<RS);
+lcd&=~(1<<RW);
+lcd|=(1<<EN);
+_delay_ms(1);
+lcd&=~(1<<EN);
+_delay_ms(1);
+}
+void lcd_data(unsigned char data)
+{
+lcd=data & 0xf0;
+lcd|=(1<<RS);
+lcd&=~(1<<RW);
+lcd|=(1<<EN);
+_delay_ms(1);
+lcd&=~(1<<EN);
+_delay_ms(1);
+lcd=(data<<4) & 0xf0;
+lcd|=(1<<RS);
+lcd&=~(1<<RW);
+lcd|=(1<<EN);
+_delay_ms(1);
+lcd&=~(1<<EN);
+_delay_ms(1);
+}
+void lcd_init()
+{lcd_command(0x02);
+lcd_command(0x06);
+lcd_command(0x28);
+lcd_command(0x0c);
+}
+
+void lcd_number(unsigned int value )
+ {  int d=0;
+	if(value==0)
+	lcd_data(value+48);
+	while(value!=0)
+	{   
+		d = value%10;
+		lcd_data(d+48);
+		value = value/10;
+	}
+	
+}
+
+void lcd_string(unsigned char *str)
+{
+	int i=0;
+	while(str[i]!='\0')
+	{
+	lcd_data(str[i]);
+	i++;
+	}
+}
+
+void adc_init()
+{
+ADMUX=0b01000000;
+ADCSRA=((1<<ADEN)|(1<<ADPS1)|(1<<ADPS2)|(1<<ADPS0));
+}
+
+unsigned int adc_read(unsigned int channel)
+{
+ADMUX = 0b11000000|channel;
+ADCSRA |= (1<<ADSC);
+while(!(ADCSRA & (1<<ADIF)));
+ADCSRA |= (1<<ADIF);
+return(ADC); 
+}
+
+void timer_init()
+{
+TCCR0|=(1<<WGM00) | (1<<WGM01) | (1<<COM1) | (1<<CS00);
+DDRB|=(1<<PB3);
+}
+
+
+void main()
+{
+unsigned int value,temp,flag=0,i;
+unsigned int a[3]={0,0,0};             //for efficient algo take six values and more dalay.
+DDRD=0xff;
+DDRB=0xff;
+lcd_init();
+adc_init();
+timer_init();
+while(1)
+{
+    if(flag==3)          //algo storing last three values at interval of 10sec.
+    flag=0;
+    lcd_command(0x80);
+	lcd_string("Temprature: ");
+	value=adc_read(0);
+	value=value*500;
+	temp=value/1024;
+	if(flag==0)
+	a[0]=temp;
+	else if(flag==1)
+	a[1]=temp;
+	else if(flag==2)
+	a[2]=temp;
+	flag++;	
+	lcd_number(temp);
+	lcd_data('C');
+	if((temp-a[2]>0.5 && a[2]-temp<=1)||(temp-a[1]>0.5 && temp-a[1]<=1)||(temp-a[0]>0.5 && temp-a[0]<=1))
+	{
+	for(i=0;i<=5;i++)
+	{
+	OCR0=80;
+	_delay_ms(500);
+	lcd_command(0xC0);
+	lcd_string("Alarm ON ");
+	}
+	}
+	else if((temp-a[2]>1 && a[2]-temp<=2)||(temp-a[1]>1 && temp-a[1]<=2)||(temp-a[0]>1 && temp-a[0]<=2))
+	{
+	for(i=0;i<=5;i++)
+	{
+	OCR0=95;
+	_delay_ms(500);
+	lcd_command(0xc0);
+	lcd_string("PROBLEM");
+	}
+	}
+	else if((temp-a[2]>2 && a[2]-temp<=4)||(temp-a[1]>2 && temp-a[1]<=4)||(temp-a[0]>2 && temp-a[0]<=4))
+	{
+	for(i=0;i<=5;i++)
+	{
+	OCR0=110;
+	_delay_ms(500);
+	lcd_command(0xc0);
+	lcd_string("RAPID INCREASE");
+	}
+	}
+	else if((temp-a[2]>5)||(temp-a[1]>5)||(temp-a[0]>5))
+	{
+    for(i=0;i<=5;i++)
+	{
+	OCR0=130;
+	_delay_ms(500);
+	lcd_command(0xc0);
+	lcd_string("CRITICAL SITUATION");
+	}
+	}
+	else
+	{
+	lcd_command(0xc0);
+	lcd_string("Alarm OFF");
+	}
+if(temp>30 && temp<=35)
+PORTB=0b00000001;
+else if(temp>35 && temp<=37)
+PORTB=0b00000011;
+else if(temp>37 && temp<=39)
+PORTB=0b00000111;
+else if(temp>39 && temp<=41)
+PORTB=0b00001111;
+else
+PORTB=0b1111111;
+_delay_ms(5000);
+}
+}
